@@ -1,0 +1,62 @@
+# Libraries
+library(tidyverse)
+library(DataExplorer)
+library(mice)
+library(factoextra)
+library(cluster)
+library(arules)
+library(caret)
+#Load Titanic Dataset
+train <- read.csv("/kaggle/input/titanic/train.csv")
+str(train)
+summary(train)
+# 1. Detect Common Data Issues
+
+# Missing value summary
+plot_missing(train)
+colSums(is.na(train))
+# Detect special values (Inf, NaN)
+sapply(train, function(x) sum(is.infinite(x) | is.nan(x)))
+# Detect outliers (for numeric columns)
+numeric_data <- train %>% select(where(is.numeric))
+boxplot(numeric_data, main="Outlier Detection")
+# Check for inconsistent or negative values
+sapply(numeric_data, function(x) sum(x < 0))
+# 2. Handling & Transformation
+# Impute missing Age values using median
+train$Age[is.na(train$Age)] <- median(train$Age, na.rm=TRUE)
+# Fill missing Embarked with mode
+train$Embarked[is.na(train$Embarked)] <- names(sort(table(train$Embarked), decreasing = TRUE))[1]
+# Encode categorical variables
+train$Sex <- as.numeric(factor(train$Sex))
+train$Embarked <- as.numeric(factor(train$Embarked))
+# Drop unused columns
+train_clean <- train %>% select(-Name, -Ticket, -Cabin)
+# Standardize numeric columns
+train_clean <- train_clean %>% mutate(across(where(is.numeric), scale))
+#3. Dimensionality Reduction (PCA)
+pca_res <- prcomp(select_if(train_clean, is.numeric), scale = TRUE)
+fviz_eig(pca_res)
+fviz_pca_biplot(pca_res)
+#4. Statistical Significance
+# t-test: age difference between survivors & non-survivors
+t.test(Age ~ Survived, data=train)
+# chi-square test for independence between Sex and Survived
+chisq.test(table(train$Sex, train$Survived))
+#5. Clustering Analysis
+set.seed(123)
+km_res <- kmeans(scale(select_if(train_clean, is.numeric)), centers=2, nstart=25)
+fviz_cluster(km_res, data = scale(select_if(train_clean, is.numeric)))
+# Hierarchical clustering
+hc <- hclust(dist(scale(select_if(train_clean, is.numeric))))
+plot(hc, main="Hierarchical Clustering Dendrogram")
+
+#6. Frequent Pattern Mining
+# Convert to transactions for Apriori
+trans_data <- train %>% 
+  mutate(across(where(is.numeric), ~cut(., breaks=3, labels=c("Low","Med","High")))) %>%
+  mutate(across(where(is.character), as.factor))
+transactions <- as(trans_data, "transactions")
+
+rules <- apriori(transactions, parameter=list(supp=0.1, conf=0.8))
+inspect(head(rules, 5))
